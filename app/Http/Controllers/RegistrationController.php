@@ -77,18 +77,22 @@ class RegistrationController extends Controller
         $newStart = $workshop->scheduled_at;
         $newEnd = $newStart->copy()->addMinutes($workshop->duration_minutes);
 
-        return Workshop::where('id', '!=', $workshop->id)
-            ->where('scheduled_at', '>', now())
-            ->where(function ($query) use ($newStart, $newEnd) {
-                $query->where(function ($q) use ($newStart, $newEnd) {
-                    $q->where('scheduled_at', '<', $newEnd)
-                        ->whereRaw('DATE_ADD(scheduled_at, INTERVAL duration_minutes MINUTE)', '>', $newStart);
-                });
-            })
-            ->whereHas('registrations', function ($query) use ($userId) {
-                $query->where('user_id', $userId)
-                    ->where('status', 'registered');
-            })
-            ->first();
+        $existingRegistrations = Registration::where('user_id', $userId)
+            ->where('status', 'registered')
+            ->where('workshop_id', '!=', $workshop->id)
+            ->with('workshop')
+            ->get()
+            ->filter(fn($reg) => $reg->workshop && $reg->workshop->scheduled_at > now());
+
+        foreach ($existingRegistrations as $reg) {
+            $existingStart = $reg->workshop->scheduled_at;
+            $existingEnd = $existingStart->copy()->addMinutes($reg->workshop->duration_minutes);
+
+            if ($newStart < $existingEnd && $newEnd > $existingStart) {
+                return $reg->workshop;
+            }
+        }
+
+        return null;
     }
 }
